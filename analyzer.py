@@ -1,10 +1,17 @@
 import sys
 import json
 import requests
+import os
 from pathlib import Path
 from pydantic import BaseModel
 from typing import Optional, List, Any
 from fitparse import FitFile
+from dotenv import load_dotenv
+
+# Load NTFY topic from shared Garmin Analyzer configuration
+GARMIN_ANALYZER_DIR = r"c:\Users\rmelamed\Projects\garmin-analyzer"
+ENV_PATH = os.path.join(GARMIN_ANALYZER_DIR, ".env")
+load_dotenv(ENV_PATH)
 
 # Constants
 WALK_CADENCE_MAX = 150
@@ -49,6 +56,7 @@ class MetabolicZones(BaseModel):
 class LapData(BaseModel):
     Lap_Number: int
     Distance_m: float
+    Duration_seconds: int
     Avg_Pace: str
     Avg_HR: int
     Min_HR: int
@@ -74,7 +82,8 @@ class FinalOutput(BaseModel):
 
 def send_ntfy_alert(output: FinalOutput, filename: str):
     try:
-        topic_url = "https://ntfy.sh/running-analysis"
+        topic = os.getenv("NTFY_TOPIC") or "running-analysis"
+        topic_url = f"https://ntfy.sh/{topic}"
         
         # Build the structured, emoji-free message body
         body = (
@@ -424,6 +433,7 @@ def process_file(file_path: str, force: bool = False):
         for i_lap, lap in enumerate(laps_data):
             lap_num = i_lap + 1
             l_dist = lap.get('total_distance', 0.0)
+            l_duration = int(round(lap.get('total_timer_time') or lap.get('total_elapsed_time') or 0))
             l_avg_speed = lap.get('enhanced_avg_speed') or lap.get('avg_speed')
             l_pace = format_pace(l_avg_speed)
             l_avg_hr = lap.get('avg_heart_rate', 0)
@@ -452,6 +462,7 @@ def process_file(file_path: str, force: bool = False):
             lap_results.append(LapData(
                 Lap_Number=lap_num,
                 Distance_m=round(l_dist, 2),
+                Duration_seconds=l_duration,
                 Avg_Pace=l_pace,
                 Avg_HR=int(l_avg_hr),
                 Min_HR=l_min_hr,

@@ -116,14 +116,20 @@ def fetch_running_fits(start_dt: date, end_dt: date, output_dir: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fetch Garmin Running FIT files.")
-    parser.add_argument("--start", type=str, required=True, help="Start date (YYYY-MM-DD)")
+    parser.add_argument("--start", type=str, default=None, help="Start date (YYYY-MM-DD). Defaults to 30 days ago.")
     parser.add_argument("--end", type=str, default=date.today().isoformat(), help="End date (YYYY-MM-DD). Defaults to today.")
     parser.add_argument("--out", type=str, default="FIT Files", help="Output directory for FIT files. Defaults to 'FIT Files'.")
     
     args = parser.parse_args()
     
     try:
-        start_date = datetime.strptime(args.start, "%Y-%m-%d").date()
+        if args.start:
+            start_date = datetime.strptime(args.start, "%Y-%m-%d").date()
+        else:
+            from datetime import timedelta
+            start_date = date.today() - timedelta(days=30)
+            logger.info(f"No start date specified. Defaulting to 30 days ago: {start_date}")
+            
         end_date = datetime.strptime(args.end, "%Y-%m-%d").date()
     except ValueError:
         logger.error("Invalid date format. Please use YYYY-MM-DD.")
