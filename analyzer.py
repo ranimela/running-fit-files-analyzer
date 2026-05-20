@@ -8,10 +8,12 @@ from typing import Optional, List, Any
 from fitparse import FitFile
 from dotenv import load_dotenv
 
-# Load NTFY topic from shared Garmin Analyzer configuration
-GARMIN_ANALYZER_DIR = r"c:\Users\rmelamed\Projects\garmin-analyzer"
-ENV_PATH = os.path.join(GARMIN_ANALYZER_DIR, ".env")
-load_dotenv(ENV_PATH)
+# Load local .env first, then fallback to shared Garmin Analyzer configuration
+load_dotenv()
+if not os.getenv("NTFY_TOPIC"):
+    GARMIN_ANALYZER_DIR = r"c:\Users\rmelamed\Projects\garmin-analyzer"
+    ENV_PATH = os.path.join(GARMIN_ANALYZER_DIR, ".env")
+    load_dotenv(ENV_PATH)
 
 # Constants
 WALK_CADENCE_MAX = 150
@@ -97,7 +99,8 @@ def send_ntfy_alert(output: FinalOutput, filename: str):
             "Title": f"Run Processed: {filename}"
         }
         
-        requests.post(topic_url, data=body.encode('utf-8'), headers=headers, timeout=5)
+        resp = requests.post(topic_url, data=body.encode('utf-8'), headers=headers, timeout=5)
+        print(f"Ntfy alert sent to {topic_url}, status: {resp.status_code}")
     except Exception as e:
         print(f"Failed to send ntfy alert: {e}")
 
