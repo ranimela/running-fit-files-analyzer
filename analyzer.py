@@ -55,6 +55,15 @@ class MetabolicZones(BaseModel):
     Zone_Drift_134_to_138_sec: int
     Zone_Threshold_Over_138_sec: int
 
+class TrackPoint(BaseModel):
+    sec: int
+    timestamp: str
+    hr: Optional[int] = None
+    cad: Optional[int] = None
+    fractional_cadence: Optional[float] = None
+    speed: Optional[float] = None
+    vert_osc: Optional[float] = None
+
 class LapData(BaseModel):
     Lap_Number: int
     Distance_m: float
@@ -73,6 +82,7 @@ class LapData(BaseModel):
     Descent_m: int
     Avg_Grade_Percent: float
     Avg_Vertical_Oscillation_mm: Optional[float] = None
+    Track_Points_Stream: List[TrackPoint]
 
 class FinalOutput(BaseModel):
     Metadata: Metadata
@@ -192,7 +202,8 @@ def process_file(file_path: str, force: bool = False):
                 'ascent': 0.0,
                 'descent': 0.0,
                 'prev_alt': None,
-                'vert_oscs': []
+                'vert_oscs': [],
+                'track_points': []
             })
 
         # Pass 1: Extract Base Metrics & Topography
@@ -270,6 +281,26 @@ def process_file(file_path: str, force: bool = False):
                             vo = r.get('vertical_oscillation')
                             if vo is not None:
                                 lt['vert_oscs'].append(vo)
+                            
+                            # Track point stream
+                            r_cad = r.get('cadence')
+                            r_frac = r.get('fractional_cadence')
+                            if r_cad is not None:
+                                frac_val = r_frac if r_frac is not None else 0.0
+                                cad_full = int(round((r_cad * 2) + frac_val))
+                            else:
+                                cad_full = None
+                            
+                            pt = TrackPoint(
+                                sec=len(lt['track_points']) + 1,
+                                timestamp=ts.strftime('%Y-%m-%d %H:%M:%S') if ts else "",
+                                hr=hr,
+                                cad=cad_full,
+                                fractional_cadence=r_frac,
+                                speed=round(speed, 2) if speed is not None else None,
+                                vert_osc=round(vo, 1) if vo is not None else None
+                            )
+                            lt['track_points'].append(pt)
                             
                             alt = r.get('enhanced_altitude') or r.get('altitude')
                             if alt is not None:
@@ -494,7 +525,8 @@ def process_file(file_path: str, force: bool = False):
                 Ascent_m=l_asc,
                 Descent_m=l_desc,
                 Avg_Grade_Percent=round(l_grade, 2),
-                Avg_Vertical_Oscillation_mm=l_avg_vo
+                Avg_Vertical_Oscillation_mm=l_avg_vo,
+                Track_Points_Stream=lt['track_points']
             ))
 
         # Construct Final JSON
