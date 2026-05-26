@@ -72,6 +72,7 @@ class LapData(BaseModel):
     Ascent_m: int
     Descent_m: int
     Avg_Grade_Percent: float
+    Avg_Vertical_Oscillation_mm: Optional[float] = None
 
 class FinalOutput(BaseModel):
     Metadata: Metadata
@@ -190,7 +191,8 @@ def process_file(file_path: str, force: bool = False):
                 'gcts': [],
                 'ascent': 0.0,
                 'descent': 0.0,
-                'prev_alt': None
+                'prev_alt': None,
+                'vert_oscs': []
             })
 
         # Pass 1: Extract Base Metrics & Topography
@@ -264,6 +266,10 @@ def process_file(file_path: str, force: bool = False):
                                 lt['hrs'].append(hr)
                             if gct is not None:
                                 lt['gcts'].append(gct)
+                            
+                            vo = r.get('vertical_oscillation')
+                            if vo is not None:
+                                lt['vert_oscs'].append(vo)
                             
                             alt = r.get('enhanced_altitude') or r.get('altitude')
                             if alt is not None:
@@ -462,6 +468,15 @@ def process_file(file_path: str, force: bool = False):
             l_desc = int(round(lt['descent']))
             l_grade = ((lt['ascent'] - lt['descent']) / l_dist * 100.0) if l_dist > 0 else 0.0
             
+            # Direct extraction from lap message first
+            l_vo = lap.get('avg_vertical_oscillation')
+            
+            # Fallback to record-level average if not found in lap message
+            if l_vo is None and lt['vert_oscs']:
+                l_vo = sum(lt['vert_oscs']) / len(lt['vert_oscs'])
+            
+            l_avg_vo = round(l_vo, 1) if l_vo is not None else None
+            
             lap_results.append(LapData(
                 Lap_Number=lap_num,
                 Distance_m=round(l_dist, 2),
@@ -478,7 +493,8 @@ def process_file(file_path: str, force: bool = False):
                 Meters_Per_Heartbeat=round(l_mphb, 2),
                 Ascent_m=l_asc,
                 Descent_m=l_desc,
-                Avg_Grade_Percent=round(l_grade, 2)
+                Avg_Grade_Percent=round(l_grade, 2),
+                Avg_Vertical_Oscillation_mm=l_avg_vo
             ))
 
         # Construct Final JSON
