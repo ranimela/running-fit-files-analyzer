@@ -93,6 +93,28 @@ class FinalOutput(BaseModel):
     Metabolic_Zones: MetabolicZones
     Lap_Data: List[LapData]
 
+class WorkoutSessionSummary(BaseModel):
+    date: str
+    total_distance_m: float
+    total_duration_s: int
+    avg_hr: int
+
+class WorkoutLap(BaseModel):
+    lap_id: int
+    type: str
+    distance_m: float
+    duration_s: int
+    avg_pace_min_km: str
+    avg_hr: int
+    max_hr: int
+    avg_cadence: int
+    avg_gct_ms: int
+    avg_vertical_ratio: float
+
+class WorkoutOutput(BaseModel):
+    session_summary: WorkoutSessionSummary
+    laps: List[WorkoutLap]
+
 def send_ntfy_alert(output: FinalOutput, filename: str):
     try:
         topic = os.getenv("NTFY_TOPIC") or "running-analysis"
@@ -123,6 +145,44 @@ def format_pace(speed_m_s: float | None) -> str:
     secs = int(pace_sec_km % 60)
     return f"{mins:02d}:{secs:02d}"
 
+def map_intensity_type(intensity: Any) -> str:
+    if intensity is None:
+        return "interval"
+    if isinstance(intensity, int):
+        if intensity == 0:
+            return "interval"
+        elif intensity == 1:
+            return "rest"
+        elif intensity == 2:
+            return "warmup"
+        elif intensity == 3:
+            return "cooldown"
+        elif intensity == 4:
+            return "rest"
+        elif intensity == 5:
+            return "interval"
+        else:
+            return "interval"
+    
+    s = str(intensity).lower()
+    if s == 'warmup':
+        return 'warmup'
+    elif s in ('active', 'interval'):
+        return 'interval'
+    elif s in ('rest', 'recovery'):
+        return 'rest'
+    elif s == 'cooldown':
+        return 'cooldown'
+    else:
+        return 'interval'
+
+import re
+def sanitize_filename(name: str) -> str:
+    s = re.sub(r'[^a-zA-Z0-9_\-\s]', '', name)
+    s = re.sub(r'[\s\-]+', '_', s)
+    s = re.sub(r'_+', '_', s)
+    return s.strip('_').lower()
+
 def process_file(file_path: str, force: bool = False):
     try:
         fitfile = FitFile(file_path)
@@ -130,6 +190,8 @@ def process_file(file_path: str, force: bool = False):
         records = []
         laps_data = []
         session_data = None
+        is_workout = False
+        workout_name = None
         
         for message in fitfile.get_messages():
             if message.name == 'record':
@@ -150,6 +212,13 @@ def process_file(file_path: str, force: bool = False):
                     if field.value is not None:
                         data[field.name] = field.value
                 session_data = data
+            elif message.name == 'workout':
+                is_workout = True
+                for field in message:
+                    if field.name == 'wkt_name' and field.value:
+                        workout_name = field.value
+            elif message.name == 'workout_step':
+                is_workout = True
                 
         if not records:
             raise ValueError("No records found in FIT file.")
@@ -603,6 +672,45 @@ def process_file(file_path: str, force: bool = False):
         output_file = output_dir / new_filename
         output_file.write_text(final_output.model_dump_json(indent=2))
         
+        # If this is a workout, generate the workout-specific JSON
+        if is_workout:
+            wkt_summary = WorkoutSessionSummary(
+                date=date_str_json,
+                total_distance_m=round(total_dist, 2),
+                total_duration_s=int(round(session_data.get('total_timer_time') or session_data.get('total_elapsed_time') or 0)) if session_data else 0,
+                avg_hr=int(sum_hr/hr_count) if hr_count else 0
+            )
+            
+            wkt_laps = []
+            for i_lap, lap in enumerate(laps_data):
+                lap_num = i_lap + 1
+                processed_lap = lap_results[i_lap]
+                
+                wkt_laps.append(WorkoutLap(
+                    lap_id=lap_num,
+                    type=map_intensity_type(lap.get('intensity')),
+                    distance_m=processed_lap.Distance_m,
+                    duration_s=processed_lap.Duration_seconds,
+                    avg_pace_min_km=processed_lap.Avg_Pace,
+                    avg_hr=processed_lap.Avg_HR,
+                    max_hr=processed_lap.Max_HR,
+                    avg_cadence=processed_lap.Avg_Cadence,
+                    avg_gct_ms=processed_lap.Avg_GCT_ms,
+                    avg_vertical_ratio=processed_lap.Avg_Vertical_Ratio
+                ))
+                
+            wkt_output = WorkoutOutput(
+                session_summary=wkt_summary,
+                laps=wkt_laps
+            )
+            
+            clean_wkt_name = sanitize_filename(workout_name) if workout_name else "workout"
+            workout_filename = f"workout_{clean_wkt_name}_{date_str_file[2:]}.json"
+            
+            workout_output_file = output_dir / workout_filename
+            workout_output_file.write_text(wkt_output.model_dump_json(indent=2))
+            print(f"Generated workout file: {workout_filename}")
+            
         # Send push notification
         send_ntfy_alert(final_output, new_filename)
         
