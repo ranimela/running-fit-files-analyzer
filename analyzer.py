@@ -272,7 +272,9 @@ def process_file(file_path: str, force: bool = False):
                 'descent': 0.0,
                 'prev_alt': None,
                 'vert_oscs': [],
-                'track_points': []
+                'track_points': [],
+                'vrs': [],
+                'cadences': []
             })
 
         # Pass 1: Extract Base Metrics & Topography
@@ -370,6 +372,12 @@ def process_file(file_path: str, force: bool = False):
                                 vert_osc=round(vo, 1) if vo is not None else None
                             )
                             lt['track_points'].append(pt)
+                            
+                            vr = r.get('vertical_ratio')
+                            if vr is not None:
+                                lt['vrs'].append(vr)
+                            if cad_full is not None:
+                                lt['cadences'].append(cad_full)
                             
                             alt = r.get('enhanced_altitude') or r.get('altitude')
                             if alt is not None:
@@ -681,22 +689,92 @@ def process_file(file_path: str, force: bool = False):
                 avg_hr=int(sum_hr/hr_count) if hr_count else 0
             )
             
+            # 1. Group adjacent laps of the same type
+            grouped_laps = []
+            current_group = []
+            
+            for i, lap in enumerate(laps_data):
+                lap_type = map_intensity_type(lap.get('intensity'))
+                if not current_group:
+                    current_group.append((i, lap_type))
+                else:
+                    prev_type = current_group[-1][1]
+                    if lap_type == prev_type:
+                        current_group.append((i, lap_type))
+                    else:
+                        grouped_laps.append(current_group)
+                        current_group = [(i, lap_type)]
+            if current_group:
+                grouped_laps.append(current_group)
+                
+            # 2. Recalculate metrics for each merged group of laps
             wkt_laps = []
-            for i_lap, lap in enumerate(laps_data):
-                lap_num = i_lap + 1
-                processed_lap = lap_results[i_lap]
+            for merged_idx, group in enumerate(grouped_laps):
+                lap_num = merged_idx + 1
+                group_type = group[0][1]
+                
+                combined_hrs = []
+                combined_cadences = []
+                combined_gcts = []
+                combined_vrs = []
+                
+                total_distance_group = 0.0
+                total_duration_group = 0
+                
+                for lap_idx, _ in group:
+                    processed_lap = lap_results[lap_idx]
+                    total_distance_group += processed_lap.Distance_m
+                    total_duration_group += processed_lap.Duration_seconds
+                    
+                    lt = laps_timing[lap_idx]
+                    lap_start = lt['start']
+                    lap_end = lt['end']
+                    
+                    # Gather ALL raw records within this lap's timestamp range
+                    if lap_start and lap_end:
+                        for r in records:
+                            ts = r.get('timestamp')
+                            if ts and lap_start <= ts <= lap_end:
+                                hr = r.get('heart_rate')
+                                if hr is not None:
+                                    combined_hrs.append(hr)
+                                
+                                r_cad = r.get('cadence')
+                                if r_cad is not None:
+                                    r_frac = r.get('fractional_cadence') or 0.0
+                                    cad_full = int(round((r_cad * 2) + r_frac))
+                                    combined_cadences.append(cad_full)
+                                    
+                                gct = r.get('stance_time')
+                                if gct is not None:
+                                    combined_gcts.append(gct)
+                                    
+                                vr = r.get('vertical_ratio')
+                                if vr is not None:
+                                    combined_vrs.append(vr)
+                
+                # Recalculated Averages
+                avg_hr = int(sum(combined_hrs) / len(combined_hrs)) if combined_hrs else 0
+                max_hr = max(combined_hrs) if combined_hrs else 0
+                avg_cadence = int(sum(combined_cadences) / len(combined_cadences)) if combined_cadences else 0
+                avg_gct_ms = int(sum(combined_gcts) / len(combined_gcts)) if combined_gcts else 0
+                avg_vertical_ratio = round(sum(combined_vrs) / len(combined_vrs), 2) if combined_vrs else 0.0
+                
+                # Recalculated Pace
+                avg_speed = total_distance_group / total_duration_group if total_duration_group > 0 else 0.0
+                avg_pace = format_pace(avg_speed)
                 
                 wkt_laps.append(WorkoutLap(
                     lap_id=lap_num,
-                    type=map_intensity_type(lap.get('intensity')),
-                    distance_m=processed_lap.Distance_m,
-                    duration_s=processed_lap.Duration_seconds,
-                    avg_pace_min_km=processed_lap.Avg_Pace,
-                    avg_hr=processed_lap.Avg_HR,
-                    max_hr=processed_lap.Max_HR,
-                    avg_cadence=processed_lap.Avg_Cadence,
-                    avg_gct_ms=processed_lap.Avg_GCT_ms,
-                    avg_vertical_ratio=processed_lap.Avg_Vertical_Ratio
+                    type=group_type,
+                    distance_m=round(total_distance_group, 2),
+                    duration_s=total_duration_group,
+                    avg_pace_min_km=avg_pace,
+                    avg_hr=avg_hr,
+                    max_hr=max_hr,
+                    avg_cadence=avg_cadence,
+                    avg_gct_ms=avg_gct_ms,
+                    avg_vertical_ratio=avg_vertical_ratio
                 ))
                 
             wkt_output = WorkoutOutput(
