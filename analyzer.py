@@ -110,7 +110,7 @@ class WorkoutLap(BaseModel):
     avg_cadence: int
     avg_gct_ms: int
     avg_vertical_ratio: float
-    seconds_above_138: int
+    seconds_above_134: int
 
 class WorkoutOutput(BaseModel):
     session_summary: WorkoutSessionSummary
@@ -765,8 +765,8 @@ def process_file(file_path: str, force: bool = False):
                 avg_speed = total_distance_group / total_duration_group if total_duration_group > 0 else 0.0
                 avg_pace = format_pace(avg_speed)
                 
-                # Seconds spent above 138bpm
-                seconds_above_138 = sum(1 for hr in combined_hrs if hr > 138)
+                # Seconds spent above 134bpm
+                seconds_above_134 = sum(1 for hr in combined_hrs if hr > 134)
                 
                 wkt_laps.append(WorkoutLap(
                     lap_id=lap_num,
@@ -779,7 +779,7 @@ def process_file(file_path: str, force: bool = False):
                     avg_cadence=avg_cadence,
                     avg_gct_ms=avg_gct_ms,
                     avg_vertical_ratio=avg_vertical_ratio,
-                    seconds_above_138=seconds_above_138
+                    seconds_above_134=seconds_above_134
                 ))
                 
             wkt_output = WorkoutOutput(
