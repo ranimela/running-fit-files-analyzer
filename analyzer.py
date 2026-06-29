@@ -46,14 +46,8 @@ class MechanicalEfficiency(BaseModel):
     Form_Decay_Delta: float
 
 class DisciplineViolations(BaseModel):
-    Seconds_Over_133: int
-    Seconds_Over_138: int
-
-class MetabolicZones(BaseModel):
-    Zone_Recovery_Under_125_sec: int
-    Zone_Base_125_to_133_sec: int
-    Zone_Drift_134_to_138_sec: int
-    Zone_Threshold_Over_138_sec: int
+    Seconds_At_Or_Below_134: int
+    Seconds_Above_134: int
 
 class TrackPoint(BaseModel):
     sec: int
@@ -90,7 +84,6 @@ class FinalOutput(BaseModel):
     Topography_Analysis: TopographyAnalysis
     Mechanical_Efficiency: MechanicalEfficiency
     Discipline_Violations: DisciplineViolations
-    Metabolic_Zones: MetabolicZones
     Lap_Data: List[LapData]
 
 class WorkoutSessionSummary(BaseModel):
@@ -284,13 +277,8 @@ def process_file(file_path: str, force: bool = False):
         sum_hr = 0
         hr_count = 0
         
-        sec_over_133 = 0
-        sec_over_138 = 0
-        
-        z_rec = 0
-        z_base = 0
-        z_drift = 0
-        z_thresh = 0
+        sec_at_or_below_134 = 0
+        sec_above_134 = 0
         
         moving_records = []
         
@@ -312,19 +300,10 @@ def process_file(file_path: str, force: bool = False):
                 sum_hr += hr
                 hr_count += 1
                 total_heartbeats += (hr / 60.0)
-                if hr > 133:
-                    sec_over_133 += 1
-                if hr > 138:
-                    sec_over_138 += 1
-                    
-                if hr < 125:
-                    z_rec += 1
-                elif 125 <= hr <= 133:
-                    z_base += 1
-                elif 134 <= hr <= 138:
-                    z_drift += 1
-                elif hr > 138:
-                    z_thresh += 1
+                if hr <= 134:
+                    sec_at_or_below_134 += 1
+                else:
+                    sec_above_134 += 1
 
             if speed is not None and speed > 0:
                 total_moving_sec += 1
@@ -514,20 +493,20 @@ def process_file(file_path: str, force: bool = False):
         while i < len(records):
             if grades[i] > 2.0:
                 hr = records[i].get('heart_rate')
-                if hr and hr > 138:
-                    # found uphill trigger > 138
+                if hr and hr > 134:
+                    # found uphill trigger > 134
                     # scan forward for end of uphill (grade < 1%)
                     j = i + 1
                     while j < len(records) and grades[j] >= 1.0:
                         j += 1
                         
                     if j < len(records):
-                        # now count seconds until HR < 133
+                        # now count seconds until HR <= 134
                         k = j
                         settled = False
                         while k < len(records):
                             k_hr = records[k].get('heart_rate')
-                            if k_hr and k_hr < 133:
+                            if k_hr and k_hr <= 134:
                                 # Found settlement!
                                 ts_start = records[j].get('timestamp')
                                 ts_end = records[k].get('timestamp')
@@ -649,15 +628,8 @@ def process_file(file_path: str, force: bool = False):
         )
         
         disc = DisciplineViolations(
-            Seconds_Over_133=sec_over_133,
-            Seconds_Over_138=sec_over_138
-        )
-        
-        zones = MetabolicZones(
-            Zone_Recovery_Under_125_sec=z_rec,
-            Zone_Base_125_to_133_sec=z_base,
-            Zone_Drift_134_to_138_sec=z_drift,
-            Zone_Threshold_Over_138_sec=z_thresh
+            Seconds_At_Or_Below_134=sec_at_or_below_134,
+            Seconds_Above_134=sec_above_134
         )
         
         final_output = FinalOutput(
@@ -666,7 +638,6 @@ def process_file(file_path: str, force: bool = False):
             Topography_Analysis=topography,
             Mechanical_Efficiency=mech,
             Discipline_Violations=disc,
-            Metabolic_Zones=zones,
             Lap_Data=lap_results
         )
         
