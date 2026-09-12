@@ -16,7 +16,7 @@ if not os.getenv("NTFY_TOPIC"):
     load_dotenv(ENV_PATH)
 
 # Constants
-WALK_CADENCE_MAX = 150
+WALK_CADENCE_MAX = 132
 
 class Metadata(BaseModel):
     Date: str
@@ -309,13 +309,22 @@ def process_file(file_path: str, force: bool = False):
                 total_moving_sec += 1
                 moving_records.append(r)
                 
-                # Single Calibration Gate: GCT > 300
-                gct = r.get('stance_time')
+                # Calibration Gate: Cadence <= 132 spm
+                r_cad = r.get('cadence')
+                r_frac = r.get('fractional_cadence')
+                if r_cad is not None:
+                    frac_val = r_frac if r_frac is not None else 0.0
+                    cad_full = int(round((r_cad * 2) + frac_val))
+                else:
+                    cad_full = None
+
                 is_walking = False
-                if gct is not None and gct > 300:
+                if cad_full is not None and cad_full <= WALK_CADENCE_MAX:
                     total_walking_sec += 1
                     is_walking = True
                     
+                gct = r.get('stance_time')
+
                 # Map to Lap
                 ts = r.get('timestamp')
                 if ts:
@@ -334,14 +343,6 @@ def process_file(file_path: str, force: bool = False):
                                 lt['vert_oscs'].append(vo)
                             
                             # Track point stream
-                            r_cad = r.get('cadence')
-                            r_frac = r.get('fractional_cadence')
-                            if r_cad is not None:
-                                frac_val = r_frac if r_frac is not None else 0.0
-                                cad_full = int(round((r_cad * 2) + frac_val))
-                            else:
-                                cad_full = None
-                            
                             pt = TrackPoint(
                                 sec=len(lt['track_points']) + 1,
                                 timestamp=ts.strftime('%Y-%m-%d %H:%M:%S') if ts else "",

@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger("RunningFITFetcher")
 
 # Paths to your existing Garmin Analyzer credentials
-GARMIN_ANALYZER_DIR = r"c:\Users\rmelamed\Projects\garmin-analyzer"
+GARMIN_ANALYZER_DIR = os.getenv("GARMIN_ANALYZER_DIR", r"c:\Users\rmelamed\Projects\garmin-analyzer")
 ENV_PATH = os.path.join(GARMIN_ANALYZER_DIR, ".env")
 TOKEN_STORE = os.path.join(GARMIN_ANALYZER_DIR, ".garmin_tokens")
 
